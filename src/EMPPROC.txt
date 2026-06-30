@@ -1,0 +1,13 @@
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TaxCalculator.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  STATE-TAX-RATE         PIC 9(3)V99.
+
+       PROCEDURE DIVISION.
+           COMPUTE TOTAL-TAX = AMOUNT * STATE-TAX-RATE
+           DISPLAY "Total Tax: " TOTAL-TAX
+           STOP RUN.
+```
