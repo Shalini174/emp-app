@@ -1,0 +1,5 @@
+000001 01  EMP-RECORD.
+000002     05  EMP-ID             PIC X(05).
+000003     05  EMP-NAME           PIC X(25).
+000004     05  EMP-DEPT           PIC X(03).
+000005     05  EMP-SALARY         PIC S9(7)V99 COMP-3.
