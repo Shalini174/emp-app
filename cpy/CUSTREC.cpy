@@ -1,5 +1,8 @@
+```
 000001 01  CUSTOMER-RECORD.
 000002     05  CUST-ID             PIC X(10).
 000003     05  CUST-NAME           PIC X(30).
 000004     05  CUST-STATUS         PIC X(01).
 000005     05  CUST-BALANCE        PIC S9(7)V99 COMP-3.
+000006     05  CUST-PHONE          PIC X(15).
+```
