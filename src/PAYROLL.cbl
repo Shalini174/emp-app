@@ -10,7 +10,7 @@
 
        DATA DIVISION.
        FILE SECTION.
-  * COBOL expects 80 characters for the input record
+
        FD  EMP-IN-FILE
            RECORD CONTAINS 80 CHARACTERS.
        01  EMP-REC-IN.
@@ -73,7 +73,7 @@
 
        3000-FORCE-SOC7.
 
-           COMPUTE WS-DUMMY-TOT = WS-BAD-NUM + 100.
+           COMPUTE WS-DUMMY-TOT = WS-OTH-VAR1 + 100.
 
        4000-TERMINATE.
            CLOSE EMP-IN-FILE
