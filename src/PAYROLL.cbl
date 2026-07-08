@@ -1,24 +1,26 @@
-       IDENTIFICATION DIVISION.
+IDENTIFICATION DIVISION.
        PROGRAM-ID. PAYROLL.
        AUTHOR. MAINFRAME EXPERT.
 
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
        FILE-CONTROL.
-           SELECT EMP-IN-FILE ASSIGN TO EMPIN.
-           SELECT PAY-OUT-FILE ASSIGN TO PAYOUT.
+           SELECT EMP-IN-FILE ASSIGN TO EMPIN
+               FILE STATUS IS WS-EMP-IN-FILE-STATUS.
+           SELECT PAY-OUT-FILE ASSIGN TO PAYOUT
+               FILE STATUS IS WS-PAY-OUT-FILE-STATUS.
 
        DATA DIVISION.
        FILE SECTION.
 
        FD  EMP-IN-FILE
-           RECORD CONTAINS 80 CHARACTERS.
+           RECORD CONTAINS 100 CHARACTERS.
        01  EMP-REC-IN.
            05 EMP-ID-IN      PIC X(5).
            05 EMP-NAME-IN    PIC X(25).
-           05 EMP-HOURS-IN   PIC 9(3).
-           05 EMP-RATE-IN    PIC 9(3)V99.
-           05 FILLER         PIC X(42).
+           05 EMP-HOURS-IN   PIC 9(3) VALUE ZERO.
+           05 EMP-RATE-IN    PIC 9(3)V99 VALUE ZERO.
+           05 FILLER         PIC X(62).
 
        FD  PAY-OUT-FILE
            RECORD CONTAINS 120 CHARACTERS.
@@ -45,6 +47,9 @@
            05 OUT-GROSS-PAY  PIC $$,$$9.99.
            05 FILLER         PIC X(77) VALUE SPACES.
 
+       01  WS-EMP-IN-FILE-STATUS  PIC X(2).
+       01  WS-PAY-OUT-FILE-STATUS  PIC X(2).
+
        PROCEDURE DIVISION.
        0000-MAIN-LOGIC.
            PERFORM 1000-INITIALIZE.
@@ -55,7 +60,15 @@
 
        1000-INITIALIZE.
            OPEN INPUT EMP-IN-FILE
+           IF WS-EMP-IN-FILE-STATUS NOT = '00'
+               PERFORM 9999-FILE-OPEN-ERROR
+               STOP RUN
+           END-IF.
            OPEN OUTPUT PAY-OUT-FILE
+           IF WS-PAY-OUT-FILE-STATUS NOT = '00'
+               PERFORM 9999-FILE-OPEN-ERROR
+               STOP RUN
+           END-IF.
            PERFORM 2100-READ-RECORD.
 
        2000-PROCESS-RECORDS.
@@ -69,10 +82,12 @@
        2100-READ-RECORD.
            READ EMP-IN-FILE
                AT END MOVE 'Y' TO WS-EOF-FLAG
-           END-READ.
+           END-READ
+           IF WS-EMP-IN-FILE-STATUS NOT = '00'
+               PERFORM 9999-FILE-READ-ERROR
+           END-IF.
 
        3000-FORCE-SOC7.
-
            COMPUTE WS-DUMMY-TOT = WS-OTH-VAR1 + 100.
 
        4000-TERMINATE.
