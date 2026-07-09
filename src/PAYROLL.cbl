@@ -1,79 +1,70 @@
-       IDENTIFICATION DIVISION.
+IDENTIFICATION DIVISION.
        PROGRAM-ID. PAYROLL.
-       AUTHOR. MAINFRAME EXPERT.
-
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
        FILE-CONTROL.
-           SELECT EMP-IN-FILE ASSIGN TO EMPIN.
-           SELECT PAY-OUT-FILE ASSIGN TO PAYOUT.
-
+           SELECT EMPIN  ASSIGN TO EMPIN.
+           SELECT PAYOUT ASSIGN TO PAYOUT.
        DATA DIVISION.
        FILE SECTION.
- 
-       FD  EMP-IN-FILE
-           RECORD CONTAINS 80 CHARACTERS.
-       01  EMP-REC-IN.
-           05 EMP-ID-IN      PIC X(5).
-           05 EMP-NAME-IN    PIC X(25).
-           05 EMP-HOURS-IN   PIC 9(3).
-           05 EMP-RATE-IN    PIC 9(3)V99.
-           05 FILLER         PIC X(42).
-
-       FD  PAY-OUT-FILE
-           RECORD CONTAINS 120 CHARACTERS.
-       01  PAY-REC-OUT       PIC X(120).
-
+       FD  EMPIN
+           RECORDING MODE IS F
+           BLOCK CONTAINS 0 RECORDS
+           RECORD CONTAINS 100 CHARACTERS
+           LABEL RECORDS ARE STANDARD.
+       01  EMPIN-RECORD.
+           05  EMP-ID             PIC X(10).
+           05  EMP-NAME           PIC X(30).
+           05  EMP-DEPT           PIC X(10).
+           05  EMP-SALARY         PIC 9(10)V99.
+           05  EMP-HOURS          PIC 9(05)V99.
+           05  EMP-RATE           PIC 9(05)V99.
+           05  EMP-FILLER         PIC X(24).
+       FD  PAYOUT
+           RECORDING MODE IS F
+           BLOCK CONTAINS 0 RECORDS
+           RECORD CONTAINS 120 CHARACTERS
+           LABEL RECORDS ARE STANDARD.
+       01  PAYOUT-RECORD.
+           05  PAY-EMP-ID         PIC X(10).
+           05  PAY-EMP-NAME       PIC X(30).
+           05  PAY-DEPT           PIC X(10).
+           05  PAY-GROSS          PIC 9(10)V99.
+           05  PAY-TAX            PIC 9(08)V99.
+           05  PAY-NET            PIC 9(10)V99.
+           05  PAY-PERIOD         PIC X(10).
+           05  PAY-DATE           PIC X(10).
+           05  PAY-FILLER         PIC X(16).
        WORKING-STORAGE SECTION.
-       01  WS-FLAGS.
-           05 WS-EOF-FLAG    PIC X VALUE 'N'.
-              88 EOF               VALUE 'Y'.
-
-       01  WS-CALCULATIONS.
-           05 WS-GROSS-PAY   PIC 9(5)V99 VALUE ZERO.
-
-       01  WS-GRP-VAR.
-           05 WS-VAR-DATA    PIC X(4) VALUE 'KEYS'.
-           05 WS-VAR-NUM REDEFINES WS-VAR-DATA PIC 9(7) COMP-3.
-           05 WS-DUMMY-TOT   PIC 9(7) COMP-3 VALUE ZERO.
-
-       01  WS-DETAIL-LINE.
-           05 OUT-EMP-ID     PIC X(5).
-           05 FILLER         PIC X(2) VALUE SPACES.
-           05 OUT-EMP-NAME   PIC X(25).
-           05 FILLER         PIC X(2) VALUE SPACES.
-           05 OUT-GROSS-PAY  PIC $$,$$9.99.
-           05 FILLER         PIC X(77) VALUE SPACES.
-
+       01  WS-EOF-FLAG            PIC X(01) VALUE 'N'.
+           88  WS-EOF             VALUE 'Y'.
+       01  WS-GROSS-PAY           PIC 9(10)V99 VALUE ZEROS.
+       01  WS-TAX-AMOUNT          PIC 9(08)V99 VALUE ZEROS.
+       01  WS-NET-PAY             PIC 9(10)V99 VALUE ZEROS.
        PROCEDURE DIVISION.
-       0000-MAIN-LOGIC.
-           PERFORM 1000-INITIALIZE.
-           PERFORM 2000-PROCESS-RECORDS UNTIL EOF.
-           PERFORM 3000-PROCESS-SUM.
-           PERFORM 4000-TERMINATE.
+       0000-MAIN.
+           OPEN INPUT  EMPIN
+           OPEN OUTPUT PAYOUT
+           PERFORM 1000-READ-EMPIN UNTIL WS-EOF
+           CLOSE EMPIN
+           CLOSE PAYOUT
            STOP RUN.
-
-       1000-INITIALIZE.
-           OPEN INPUT EMP-IN-FILE
-           OPEN OUTPUT PAY-OUT-FILE
-           PERFORM 2100-READ-RECORD.
-
-       2000-PROCESS-RECORDS.
-           COMPUTE WS-GROSS-PAY = EMP-HOURS-IN * EMP-RATE-IN
-           MOVE EMP-ID-IN TO OUT-EMP-ID
-           MOVE EMP-NAME-IN TO OUT-EMP-NAME
-           MOVE WS-GROSS-PAY TO OUT-GROSS-PAY
-           WRITE PAY-REC-OUT FROM WS-DETAIL-LINE
-           PERFORM 2100-READ-RECORD.
-
-       2100-READ-RECORD.
-           READ EMP-IN-FILE
+       1000-READ-EMPIN.
+           READ EMPIN INTO EMPIN-RECORD
                AT END MOVE 'Y' TO WS-EOF-FLAG
+               NOT AT END PERFORM 2000-PROCESS-RECORD
            END-READ.
-
-       3000-PROCESS-SUM.
-           COMPUTE WS-DUMMY-TOT = WS-VAR-NUM + 100.
-
-       4000-TERMINATE.
-           CLOSE EMP-IN-FILE
-                 PAY-OUT-FILE.
+       2000-PROCESS-RECORD.
+           COMPUTE WS-GROSS-PAY = EMP-HOURS * EMP-RATE
+           COMPUTE WS-TAX-AMOUNT = WS-GROSS-PAY * 0.20
+           COMPUTE WS-NET-PAY = WS-GROSS-PAY - WS-TAX-AMOUNT
+           MOVE EMP-ID          TO PAY-EMP-ID
+           MOVE EMP-NAME        TO PAY-EMP-NAME
+           MOVE EMP-DEPT        TO PAY-DEPT
+           MOVE WS-GROSS-PAY    TO PAY-GROSS
+           MOVE WS-TAX-AMOUNT   TO PAY-TAX
+           MOVE WS-NET-PAY      TO PAY-NET
+           MOVE SPACES          TO PAY-PERIOD
+           MOVE SPACES          TO PAY-DATE
+           MOVE SPACES          TO PAY-FILLER
+           WRITE PAYOUT-RECORD.
