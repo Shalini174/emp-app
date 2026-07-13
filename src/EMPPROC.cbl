@@ -12,7 +12,7 @@
            MOVE '12345' TO EMP-ID
            MOVE 'JOHN DOE' TO EMP-NAME
            MOVE 5000.00 TO EMP-SALARY
-           COMPUTE WS-NET-PAY = EMP-SALARY -
+           COMOPUTE WS-NET-PAY = EMP-SALARY -
                 (EMP-SALARY * FED-TAX-RATE)
            COMPUTE WS-NET-PAY = WS-NET-PAY -
                 (EMP-SALARY * STATE-TAX-RATE)
