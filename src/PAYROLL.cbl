@@ -1,30 +1,36 @@
-       IDENTIFICATION DIVISION.
+IDENTIFICATION DIVISION.
        PROGRAM-ID. PAYROLL.
        AUTHOR. MAINFRAME EXPERT.
 
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
        FILE-CONTROL.
-           SELECT EMP-IN-FILE ASSIGN TO EMPIN.
-           SELECT PAY-OUT-FILE ASSIGN TO PAYOUT.
+           SELECT EMP-IN-FILE ASSIGN TO EMPIN
+               FILE STATUS IS WS-EMP-IN-STATUS.
+           SELECT PAY-OUT-FILE ASSIGN TO PAYOUT
+               FILE STATUS IS WS-PAY-OUT-STATUS.
 
        DATA DIVISION.
        FILE SECTION.
- 
+
        FD  EMP-IN-FILE
-           RECORD CONTAINS 80 CHARACTERS.
+           RECORD CONTAINS 100 CHARACTERS.
        01  EMP-REC-IN.
            05 EMP-ID-IN      PIC X(5).
            05 EMP-NAME-IN    PIC X(25).
            05 EMP-HOURS-IN   PIC 9(3).
            05 EMP-RATE-IN    PIC 9(3)V99.
-           05 FILLER         PIC X(42).
+           05 FILLER         PIC X(62).
 
        FD  PAY-OUT-FILE
            RECORD CONTAINS 120 CHARACTERS.
        01  PAY-REC-OUT       PIC X(120).
 
        WORKING-STORAGE SECTION.
+       01  WS-FILE-STATUS.
+           05 WS-EMP-IN-STATUS  PIC XX VALUE SPACES.
+           05 WS-PAY-OUT-STATUS PIC XX VALUE SPACES.
+
        01  WS-FLAGS.
            05 WS-EOF-FLAG    PIC X VALUE 'N'.
               88 EOF               VALUE 'Y'.
@@ -33,6 +39,7 @@
            05 WS-GROSS-PAY   PIC 9(5)V99 VALUE ZERO.
 
        01  WS-GRP-VAR.
+*NEEDS-REVIEW: SOC7-009 - invalid VALUE literal for redefined numeric field, cannot auto-fix
            05 WS-VAR-DATA    PIC X(4) VALUE 'KEYS'.
            05 WS-VAR-NUM REDEFINES WS-VAR-DATA PIC 9(7) COMP-3.
            05 WS-DUMMY-TOT   PIC 9(7) COMP-3 VALUE ZERO.
