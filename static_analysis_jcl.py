@@ -103,6 +103,7 @@ async def run_mcp_pipeline_poc(session, modified_code: str):
 
 async def static_analysis_check(session) -> str:
     file_path = f"src/{program_name}"
+    print(f"DEBUG - Raw file_path from script: {repr(file_path)}")
     mcp_result = await session.call_tool("get_file_contents", arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": file_path, "branch": "main"})
     raw_content = json.loads(mcp_result.content[0].text).get("content", "")
     
