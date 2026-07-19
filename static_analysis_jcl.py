@@ -105,7 +105,7 @@ async def static_analysis_check(session) -> str:
     file_path = f"src/{program_name}"
     cleaned_path = "/".join(part.strip() for part in file_path.split("/"))
     print(f"DEBUG - Cleaned file_path: {repr(cleaned_path)}")
-    mcp_result = await session.call_tool("get_file_contents", arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": file_path, "branch": "main"})
+    mcp_result = await session.call_tool("get_file_contents", arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": cleaned_path, "branch": "main"})
     raw_content = json.loads(mcp_result.content[0].text).get("content", "")
     
     cobol_code = base64.b64decode(raw_content.replace("\n", "")).decode("utf-8") if "DIVISION" not in raw_content.upper() else raw_content
