@@ -35,7 +35,7 @@ async def extract_jcl_dd_allocations(jcl_content: str, prog_name: str) -> list:
     Respond ONLY with valid JSON.
     """
     response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
+        model="claude-sonnet-4-6",
         max_tokens=4096,
         system=system_prompt,
         messages=[MessageParam(role="user", content=jcl_content)]
@@ -60,7 +60,7 @@ async def heal_cobol_fd_section(cobol_content: str, file_specs: list) -> str:
     """
     user_content = f"Ground-Truth Specs:\n{json.dumps(file_specs)}\n\nCOBOL Code:\n{cobol_content}"
     response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
+        model="claude-sonnet-4-6",
         max_tokens=8096,
         system=system_prompt,
         messages=[MessageParam(role="user", content=user_content)]
@@ -119,7 +119,7 @@ async def static_analysis_check(session) -> str:
     Return ONLY the raw modified COBOL source. No markdown, no code blocks or conversational text.
     """
     response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
+        model="claude-sonnet-4-6",
         max_tokens=8096,
         system=static_analysis_prompt,
         messages=[MessageParam(role="user", content=f"COBOL:\n{cobol_code}\n\nRules:\n{z}")]
