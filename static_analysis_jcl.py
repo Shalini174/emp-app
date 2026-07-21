@@ -1,5 +1,5 @@
 import os
-import sys  # <--- Added import
+import sys  
 import json
 import asyncio
 import base64
@@ -14,7 +14,7 @@ from mcp.client.session import ClientSession
 load_dotenv()
 
 # --- Dynamic Configuration Retrieval ---
-ENV_PROGRAM = os.getenv("PROGRAM_NAME", "EMPPROC")
+ENV_PROGRAM = os.getenv("PROGRAM_NAME", "PAYPROC")
 ENV_REPO_URL = os.getenv("REPO_URL", "https://github.com/Shalini174/emp-app.git")
 
 url_match = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", ENV_REPO_URL)
@@ -27,10 +27,11 @@ program_name = f"{ENV_PROGRAM}.cbl"
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+
 async def extract_jcl_dd_allocations(jcl_content: str, prog_name: str) -> list:
     system_prompt = f"""
     You are a mainframe JCL expert. Analyze the provided JCL.
-    Find the EXEC step that runs PGM={prog_name.replace('.cbl','')}.
+    Find the EXEC step that runs PGM={prog_name.replace('.cbl', '')}.
     Extract all dataset allocations (DD statements).
     Return a JSON array with keys: dd_name, dsn, disp, lrecl.
     Respond ONLY with valid JSON.
@@ -51,6 +52,7 @@ async def extract_jcl_dd_allocations(jcl_content: str, prog_name: str) -> list:
     except Exception:
         return []
 
+
 async def heal_cobol_fd_section(cobol_content: str, file_specs: list) -> str:
     system_prompt = """
     You are an autonomous COBOL DevOps agent. 
@@ -68,28 +70,29 @@ async def heal_cobol_fd_section(cobol_content: str, file_specs: list) -> str:
     )
     return response.content[0].text.replace("```cobol", "").replace("```", "").strip()
 
+
 async def run_mcp_pipeline_poc(session, original_code: str, modified_code: str):
     clean_name = program_name.replace('.cbl', '').upper().strip()
     final_code = modified_code
     jcl_content, jcl_path = None, None
-    
+
     # 1. Attempt to find matching JCL safely
     try:
         dir_result = await session.call_tool(
-            "get_file_contents", 
+            "get_file_contents",
             arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": "jcl"}
         )
         dir_data = json.loads(dir_result.content[0].text)
-        
+
         if isinstance(dir_data, list):
             for file_entry in dir_data:
                 file_name = file_entry.get("name", "")
                 if not file_name.upper().endswith(".JCL"):
                     continue
-                
+
                 path = f"jcl/{file_name}"
                 file_result = await session.call_tool(
-                    "get_file_contents", 
+                    "get_file_contents",
                     arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": path}
                 )
                 raw = file_result.content[0].text
@@ -98,7 +101,7 @@ async def run_mcp_pipeline_poc(session, original_code: str, modified_code: str):
                     content = base64.b64decode(parsed.get("content", "").replace("\n", "")).decode("utf-8")
                 except Exception:
                     content = raw
-                    
+
                 if f"EXEC PGM={clean_name}" in content.upper():
                     jcl_content, jcl_path = content, path
                     break
@@ -122,19 +125,21 @@ async def run_mcp_pipeline_poc(session, original_code: str, modified_code: str):
         return 10  # Return Code 10 -> PR Created
     else:
         print("[INFO] Code adheres to rules. No changes required.")
-        return 0   # Return Code 0 -> Success / No PR Needed
+        return 0  # Return Code 0 -> Success / No PR Needed
+
 
 async def static_analysis_check(session) -> tuple[str, str]:
     file_path = f"src/{program_name}"
     cleaned_path = "/".join(part.strip() for part in file_path.split("/"))
     mcp_result = await session.call_tool(
-        "get_file_contents", 
+        "get_file_contents",
         arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": cleaned_path, "branch": "main"}
     )
     raw_content = json.loads(mcp_result.content[0].text).get("content", "")
-    cobol_code = base64.b64decode(raw_content.replace("\n", "")).decode("utf-8") if "DIVISION" not in raw_content.upper() else raw_content
-    
-    with open(rules, "r") as f: 
+    cobol_code = base64.b64decode(raw_content.replace("\n", "")).decode(
+        "utf-8") if "DIVISION" not in raw_content.upper() else raw_content
+
+    with open(rules, "r") as f:
         z = f.read()
 
     static_analysis_prompt = """You are an expert IBM Mainframe COBOL static analysis specialist.
@@ -156,73 +161,114 @@ Rules to strictly follow:
 """
 
     response = client.messages.create(
-    model="claude-sonnet-4-6",
-    max_tokens=8096,
-    temperature=0.0,
-    system=[
-        {
-            "type": "text",
-            "text": static_analysis_prompt
-        },
-        {
-            "type": "text",
-            "text": f"STATIC ANALYSIS RULES:\n{z}",
-            "cache_control": {"type": "ephemeral"}  # Caches rules across pipeline runs
-        }
-    ],
-    messages=[MessageParam(role="user", content=f"COBOL Source:\n{cobol_code}")]
-)
-    
+        model="claude-sonnet-4-6",
+        max_tokens=8096,
+        temperature=0.0,
+        system=[
+            {
+                "type": "text",
+                "text": static_analysis_prompt
+            },
+            {
+                "type": "text",
+                "text": f"STATIC ANALYSIS RULES:\n{z}",
+                "cache_control": {"type": "ephemeral"}  # Caches rules across pipeline runs
+            }
+        ],
+        messages=[MessageParam(role="user", content=f"COBOL Source:\n{cobol_code}")]
+    )
+
     patch_text = response.content[0].text.strip()
     modified_code = apply_search_replace_patches(cobol_code, patch_text)
+    print('Modified Code is', modified_code)
     return cobol_code, modified_code
 
 
 def apply_search_replace_patches(original_code: str, patch_text: str) -> str:
-    """Applies <<<<<<< SEARCH ... ======= ... >>>>>>> blocks sequentially."""
+    """
+    Applies <<<<<<< SEARCH ... ======= ... >>>>>>> blocks flexibly by handling
+    whitespace mismatches, line ending variations (\r\n vs \n), and non-breaking spaces (\xa0).
+    """
+    # 1. Clean non-breaking spaces and normalize line endings
+    original_code = original_code.replace('\xa0', ' ').replace('\r\n', '\n')
+    patch_text = patch_text.replace('\xa0', ' ').replace('\r\n', '\n')
+
     pattern = re.compile(r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>>", re.DOTALL)
     matches = pattern.findall(patch_text)
-    
+
     updated_code = original_code
+
     for search_block, replace_block in matches:
+        # Step A: Try exact string replacement first
         if search_block in updated_code:
             updated_code = updated_code.replace(search_block, replace_block, 1)
-        else:
-            print(f"[WARN] Could not match search block in source:\n{search_block[:50]}...")
-            
-    return updated_code
+            print("[INFO] Patch applied via exact match.")
+            continue
+
+        # Step B: Fall back to normalized line-by-line matching
+        search_lines = [line.strip() for line in search_block.strip().splitlines() if line.strip()]
+        if not search_lines:
+            continue
+
+        orig_lines = updated_code.splitlines()
+        matched = False
+
+        for i in range(len(orig_lines) - len(search_lines) + 1):
+            # Extract candidate lines from source and strip them for comparison
+            candidate_stripped = [orig_lines[i + j].strip() for j in range(len(search_lines))]
+
+            if candidate_stripped == search_lines:
+                # Match found! Replace the matching line block with the replacement lines
+                replace_lines = replace_block.splitlines()
+                orig_lines[i: i + len(search_lines)] = replace_lines
+                updated_code = "\n".join(orig_lines)
+                matched = True
+                print(f"[INFO] Patch applied via normalized line match.")
+                break
+
+        if not matched:
+            print(f"[WARN] Could not match search block in source:\n{search_block[:80]}...")
+
+    return updated_code 
+
 
 async def github_connection():
     env = os.environ.copy()
     env["GITHUB_PERSONAL_ACCESS_TOKEN"] = GITHUB_TOKEN
-    server_params = StdioServerParameters(command="npx.cmd", args=["-y", "@modelcontextprotocol/server-github"], env=env)
+    server_params = StdioServerParameters(command="npx.cmd", args=["-y", "@modelcontextprotocol/server-github"],
+                                          env=env)
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             original_code, modified_code = await static_analysis_check(session)
             return await run_mcp_pipeline_poc(session, original_code, modified_code)
 
+
 async def code_commit(session, modified_file) -> str:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     new_branch = f"feature-static-analysis-{timestamp}"
-    await session.call_tool("create_branch", arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "branch": new_branch, "from_branch": "main"})
+    await session.call_tool("create_branch", arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "branch": new_branch,
+                                                        "from_branch": "main"})
     await session.call_tool(
         "create_or_update_file",
-        arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": f"src/{program_name}", "content": modified_file, "message": "Applying static patches", "branch": new_branch}
+        arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": f"src/{program_name}", "content": modified_file,
+                   "message": "Applying static patches", "branch": new_branch}
     )
     pr_res = await session.call_tool(
         "create_pull_request",
-        arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "title": f"Static Analysis Fixes ({timestamp})", "body": "Applying strict structural formatting rules", "head": new_branch, "base": "main"}
+        arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "title": f"Static Analysis Fixes ({timestamp})",
+                   "body": "Applying strict structural formatting rules", "head": new_branch, "base": "main"}
     )
-    
+
     pr_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/pulls"
     try:
         parsed = json.loads(pr_res.content[0].text)
         pr_url = parsed.get("html_url") or parsed.get("url") or pr_url
     except Exception:
         pass
-        
+
     return pr_url
+
 
 if __name__ == "__main__":
     exit_code = asyncio.run(github_connection())
