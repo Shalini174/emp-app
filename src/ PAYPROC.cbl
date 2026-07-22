@@ -31,7 +31,7 @@
            05  WS-EMP-STATUS          PIC X(02) VALUE '00'.
                88  EMP-SUCCESS        VALUE '00'.
                88  EMP-EOF            VALUE '10'.
-           05  WS-RPT-STATUS          PIC XX.
+           05  WS-RPT-STATUS          PIC X(02) VALUE '00'.
 
       *--- WORK FIELDS FOR INTERMEDIATE CALCULATIONS (COMP-3) ---
        01  WS-CALCULATIONS.
@@ -99,9 +99,12 @@
 
        2000-PROCESS-FILE.
            IF STATUS-ACTIVE
-               PRFORM 2100-CALCULATE-PAYROLL
+               PERFORM 2100-CALCULATE-PAYROLL
                PERFORM 2200-FORMAT-AND-WRITE-DETAIL
                ADD 1 TO WS-TOTAL-EMPLOYEES
+                   ON SIZE ERROR
+                       DISPLAY 'OVERFLOW ON WS-TOTAL-EMPLOYEES'
+               END-ADD
            END-IF
            PERFORM 1100-READ-EMP-FILE.
 
@@ -109,35 +112,32 @@
            COMPUTE WS-GROSS-PAY ROUNDED =
                EMP-HOURS-WORKED * EMP-HOURLY-RATE
                ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-GROSS-PAY COMPUTE'
-                   MOVE ZERO TO WS-GROSS-PAY
+                   DISPLAY 'OVERFLOW ON WS-GROSS-PAY'
            END-COMPUTE
 
            COMPUTE WS-TAX-AMOUNT ROUNDED =
                WS-GROSS-PAY * EMP-TAX-RATE
                ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-TAX-AMOUNT COMPUTE'
-                   MOVE ZERO TO WS-TAX-AMOUNT
+                   DISPLAY 'OVERFLOW ON WS-TAX-AMOUNT'
            END-COMPUTE
 
            SUBTRACT WS-TAX-AMOUNT FROM WS-GROSS-PAY
                GIVING WS-NET-PAY
                ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-NET-PAY SUBTRACT'
-                   MOVE ZERO TO WS-NET-PAY
+                   DISPLAY 'OVERFLOW ON WS-NET-PAY'
            END-SUBTRACT
 
            ADD WS-GROSS-PAY    TO WS-TOTAL-GROSS-PAY
                ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-TOTAL-GROSS-PAY ADD'
+                   DISPLAY 'OVERFLOW ON WS-TOTAL-GROSS-PAY'
            END-ADD
            ADD WS-TAX-AMOUNT   TO WS-TOTAL-TAX-DEDUCTED
                ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-TOTAL-TAX-DEDUCTED ADD'
+                   DISPLAY 'OVERFLOW ON WS-TOTAL-TAX-DEDUCTED'
            END-ADD
            ADD WS-NET-PAY      TO WS-TOTAL-NET-PAY
                ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-TOTAL-NET-PAY ADD'
+                   DISPLAY 'OVERFLOW ON WS-TOTAL-NET-PAY'
            END-ADD.
 
        2200-FORMAT-AND-WRITE-DETAIL.
