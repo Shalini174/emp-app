@@ -14,7 +14,8 @@
                FILE STATUS IS WS-EMP-STATUS.
 
            SELECT RPT-FILE ASSIGN TO PAYRPT
-               ORGANIZATION IS SEQUENTIAL.
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS WS-RPT-STATUS.
 
        DATA DIVISION.
        FILE SECTION.
@@ -30,12 +31,13 @@
            05  WS-EMP-STATUS          PIC X(02) VALUE '00'.
                88  EMP-SUCCESS        VALUE '00'.
                88  EMP-EOF            VALUE '10'.
+           05  WS-RPT-STATUS          PIC XX VALUE '00'.
 
       *--- WORK FIELDS FOR INTERMEDIATE CALCULATIONS (COMP-3) ---
        01  WS-CALCULATIONS.
-           05  WS-GROSS-PAY           PIC S9(05)V99 COMP-3.
-           05  WS-TAX-AMOUNT          PIC S9(05)V99 COMP-3.
-           05  WS-NET-PAY             PIC S9(05)V99 COMP-3.
+           05  WS-GROSS-PAY           PIC S9(05)V99 COMP-3 VALUE ZERO.
+           05  WS-TAX-AMOUNT          PIC S9(05)V99 COMP-3 VALUE ZERO.
+           05  WS-NET-PAY             PIC S9(05)V99 COMP-3 VALUE ZERO.
 
       *--- INCLUDE SUMMARY TOTALS COPYBOOK ---
            COPY WSCOPY.
@@ -74,36 +76,70 @@
 
        1000-INITIALIZE.
            OPEN INPUT EMP-FILE
+           IF WS-EMP-STATUS NOT = '00'
+               DISPLAY 'EMP-FILE OPEN FAILED - STATUS: ' WS-EMP-STATUS
+               STOP RUN
+           END-IF
            OPEN OUTPUT RPT-FILE
+           IF WS-RPT-STATUS NOT = '00'
+               DISPLAY 'RPT-FILE OPEN FAILED - STATUS: ' WS-RPT-STATUS
+               STOP RUN
+           END-IF
            PERFORM 1100-READ-EMP-FILE.
 
        1100-READ-EMP-FILE.
            READ EMP-FILE
                AT END
                    SET EMP-EOF TO TRUE
-           END-READ.
+           END-READ
+           IF WS-EMP-STATUS NOT = '00' AND WS-EMP-STATUS NOT = '10'
+               DISPLAY 'EMP-FILE READ FAILED - STATUS: ' WS-EMP-STATUS
+               STOP RUN
+           END-IF.
 
        2000-PROCESS-FILE.
            IF STATUS-ACTIVE
+*NEEDS-REVIEW: TYPO - 'PRFORM' should be 'PERFORM' (compile error)
                PRFORM 2100-CALCULATE-PAYROLL
                PERFORM 2200-FORMAT-AND-WRITE-DETAIL
                ADD 1 TO WS-TOTAL-EMPLOYEES
+                   ON SIZE ERROR
+                       DISPLAY 'OVERFLOW ON WS-TOTAL-EMPLOYEES'
+               END-ADD
            END-IF
            PERFORM 1100-READ-EMP-FILE.
 
        2100-CALCULATE-PAYROLL.
            COMPUTE WS-GROSS-PAY ROUNDED =
                EMP-HOURS-WORKED * EMP-HOURLY-RATE
+               ON SIZE ERROR
+                   DISPLAY 'OVERFLOW ON WS-GROSS-PAY'
+           END-COMPUTE
 
            COMPUTE WS-TAX-AMOUNT ROUNDED =
                WS-GROSS-PAY * EMP-TAX-RATE
+               ON SIZE ERROR
+                   DISPLAY 'OVERFLOW ON WS-TAX-AMOUNT'
+           END-COMPUTE
 
-           SUBTRACT WS-TAX-AMOUNT FROM WS-GROSS-PAY 
+           SUBTRACT WS-TAX-AMOUNT FROM WS-GROSS-PAY
                GIVING WS-NET-PAY
+               ON SIZE ERROR
+                   DISPLAY 'OVERFLOW ON WS-NET-PAY'
+           END-SUBTRACT
 
            ADD WS-GROSS-PAY    TO WS-TOTAL-GROSS-PAY
+               ON SIZE ERROR
+                   DISPLAY 'OVERFLOW ON WS-TOTAL-GROSS-PAY'
+           END-ADD
            ADD WS-TAX-AMOUNT   TO WS-TOTAL-TAX-DEDUCTED
-           ADD WS-NET-PAY      TO WS-TOTAL-NET-PAY.
+               ON SIZE ERROR
+                   DISPLAY 'OVERFLOW ON WS-TOTAL-TAX-DEDUCTED'
+           END-ADD
+           ADD WS-NET-PAY      TO WS-TOTAL-NET-PAY
+               ON SIZE ERROR
+                   DISPLAY 'OVERFLOW ON WS-TOTAL-NET-PAY'
+           END-ADD.
 
        2200-FORMAT-AND-WRITE-DETAIL.
            MOVE SPACES          TO DETAIL-LINE
@@ -111,15 +147,37 @@
            MOVE EMP-NAME        TO DET-EMP-NAME
            MOVE WS-GROSS-PAY    TO DET-GROSS-PAY
            MOVE WS-NET-PAY      TO DET-NET-PAY
-           WRITE RPT-RECORD FROM DETAIL-LINE.
+           WRITE RPT-RECORD FROM DETAIL-LINE
+           IF WS-RPT-STATUS NOT = '00'
+               DISPLAY 'RPT-FILE WRITE FAILED - STATUS: ' WS-RPT-STATUS
+               STOP RUN
+           END-IF.
 
        3000-PRINT-SUMMARY.
            WRITE RPT-RECORD FROM SUMMARY-HEADER
+           IF WS-RPT-STATUS NOT = '00'
+               DISPLAY 'RPT-FILE WRITE FAILED - STATUS: ' WS-RPT-STATUS
+               STOP RUN
+           END-IF
            MOVE WS-TOTAL-EMPLOYEES TO SUM-TOTAL-EMPS
            WRITE RPT-RECORD FROM SUMMARY-LINE-1
+           IF WS-RPT-STATUS NOT = '00'
+               DISPLAY 'RPT-FILE WRITE FAILED - STATUS: ' WS-RPT-STATUS
+               STOP RUN
+           END-IF
            MOVE WS-TOTAL-NET-PAY   TO SUM-TOTAL-NET
-           WRITE RPT-RECORD FROM SUMMARY-LINE-2.
+           WRITE RPT-RECORD FROM SUMMARY-LINE-2
+           IF WS-RPT-STATUS NOT = '00'
+               DISPLAY 'RPT-FILE WRITE FAILED - STATUS: ' WS-RPT-STATUS
+               STOP RUN
+           END-IF.
 
        9000-TERMINATE.
            CLOSE EMP-FILE
-                 RPT-FILE.
+                 RPT-FILE
+           IF WS-EMP-STATUS NOT = '00'
+               DISPLAY 'EMP-FILE CLOSE FAILED - STATUS: ' WS-EMP-STATUS
+           END-IF
+           IF WS-RPT-STATUS NOT = '00'
+               DISPLAY 'RPT-FILE CLOSE FAILED - STATUS: ' WS-RPT-STATUS
+           END-IF.
