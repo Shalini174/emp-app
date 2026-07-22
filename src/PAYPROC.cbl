@@ -1,4 +1,4 @@
-       IDENTIFICATION DIVISION.
+IDENTIFICATION DIVISION.
        PROGRAM-ID.    PAYPROC.
        AUTHOR.        MAINFRAME-EXPERT.
       *----------------------------------------------------------------*
@@ -64,6 +64,9 @@
                VALUE 'TOTAL NET PAYOUT  : '.
            05  SUM-TOTAL-NET          PIC $$,$$$,$$9.99.
 
+       01  PRFORM                     PIC X(10).
+       01  WS-CALCULATE-PAYROLL       PIC X(10).
+
        PROCEDURE DIVISION.
        0000-MAIN.
            PERFORM 1000-INITIALIZE
@@ -85,7 +88,7 @@
 
        2000-PROCESS-FILE.
            IF STATUS-ACTIVE
-               PRFORM 2100-CALCULATE-PAYROLL
+               PERFORM 2100-CALCULATE-PAYROLL
                PERFORM 2200-FORMAT-AND-WRITE-DETAIL
                ADD 1 TO WS-TOTAL-EMPLOYEES
            END-IF
