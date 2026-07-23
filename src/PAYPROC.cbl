@@ -1,4 +1,4 @@
-       IDENTIFICATION DIVISION.
+IDENTIFICATION DIVISION.
        PROGRAM-ID.    PAYPROC.
        AUTHOR.        MAINFRAME-EXPERT.
       *----------------------------------------------------------------*
@@ -68,6 +68,10 @@
                VALUE 'TOTAL NET PAYOUT  : '.
            05  SUM-TOTAL-NET          PIC $$,$$$,$$9.99.
 
+       01  STATUS-ACTIVE              PIC X(01) VALUE 'Y'.
+       01  STATUS-INACTIVE            PIC X(01) VALUE 'N'.
+       01  FILLER                     PIC X(01).
+
        PROCEDURE DIVISION.
        0000-MAIN.
            PERFORM 1000-INITIALIZE
@@ -78,12 +82,12 @@
 
        1000-INITIALIZE.
            OPEN INPUT EMP-FILE
-           IF WS-EMP-STATUS NOT = '00'
+           IF WS-EMP-STATUS != '00'
                DISPLAY 'EMP-FILE OPEN FAILED - STATUS: ' WS-EMP-STATUS
                STOP RUN
            END-IF
            OPEN OUTPUT RPT-FILE
-           IF WS-RPT-STATUS NOT = '00'
+           IF WS-RPT-STATUS != '00'
                DISPLAY 'RPT-FILE OPEN FAILED - STATUS: ' WS-RPT-STATUS
                STOP RUN
            END-IF
@@ -94,7 +98,7 @@
                AT END
                    SET EMP-EOF TO TRUE
            END-READ
-           IF WS-EMP-STATUS NOT = '00' AND WS-EMP-STATUS NOT = '10'
+           IF WS-EMP-STATUS != '00' AND WS-EMP-STATUS != '10'
                DISPLAY 'EMP-FILE READ FAILED - STATUS: ' WS-EMP-STATUS
                STOP RUN
            END-IF.
@@ -149,26 +153,26 @@
            MOVE WS-GROSS-PAY    TO DET-GROSS-PAY
            MOVE WS-NET-PAY      TO DET-NET-PAY
            WRITE RPT-RECORD FROM DETAIL-LINE
-           IF WS-RPT-STATUS NOT = '00'
+           IF WS-RPT-STATUS != '00'
                DISPLAY 'RPT-FILE WRITE FAILED - STATUS: ' WS-RPT-STATUS
                STOP RUN
            END-IF.
 
        3000-PRINT-SUMMARY.
            WRITE RPT-RECORD FROM SUMMARY-HEADER
-           IF WS-RPT-STATUS NOT = '00'
+           IF WS-RPT-STATUS != '00'
                DISPLAY 'RPT-FILE WRITE FAILED - STATUS: ' WS-RPT-STATUS
                STOP RUN
            END-IF
            MOVE WS-TOTAL-EMPLOYEES TO SUM-TOTAL-EMPS
            WRITE RPT-RECORD FROM SUMMARY-LINE-1
-           IF WS-RPT-STATUS NOT = '00'
+           IF WS-RPT-STATUS != '00'
                DISPLAY 'RPT-FILE WRITE FAILED - STATUS: ' WS-RPT-STATUS
                STOP RUN
            END-IF
            MOVE WS-TOTAL-NET-PAY   TO SUM-TOTAL-NET
            WRITE RPT-RECORD FROM SUMMARY-LINE-2
-           IF WS-RPT-STATUS NOT = '00'
+           IF WS-RPT-STATUS != '00'
                DISPLAY 'RPT-FILE WRITE FAILED - STATUS: ' WS-RPT-STATUS
                STOP RUN
            END-IF.
@@ -176,9 +180,9 @@
        9000-TERMINATE.
            CLOSE EMP-FILE
                  RPT-FILE
-           IF WS-EMP-STATUS NOT = '00'
+           IF WS-EMP-STATUS != '00'
                DISPLAY 'EMP-FILE CLOSE FAILED - STATUS: ' WS-EMP-STATUS
            END-IF
-           IF WS-RPT-STATUS NOT = '00'
+           IF WS-RPT-STATUS != '00'
                DISPLAY 'RPT-FILE CLOSE FAILED - STATUS: ' WS-RPT-STATUS
            END-IF.
