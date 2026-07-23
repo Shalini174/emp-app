@@ -1,34 +1,22 @@
 import os
 import sys
 import json
-import asyncio
-import base64
 import re
-from datetime import datetime
 from dotenv import load_dotenv
 from anthropic import Anthropic
 from anthropic.types import MessageParam
-from mcp.client.stdio import stdio_client, StdioServerParameters
-from mcp.client.session import ClientSession
 
 load_dotenv()
 
 # --- Dynamic Configuration Retrieval ---
 ENV_PROGRAM = os.getenv("PROGRAM_NAME", "PAYPROC")
-ENV_REPO_URL = os.getenv("REPO_URL", "https://github.com/Shalini174/emp-app.git")
-
-url_match = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", ENV_REPO_URL)
-REPO_OWNER = url_match.group(1) if url_match else "Shalini174"
-REPO_NAME = url_match.group(2) if url_match else "emp-app"
-
-rules = 'COBOL_Static_Analysis_Rules.txt'
+rules_file = "COBOL_Static_Analysis_Rules.txt"
 program_name = f"{ENV_PROGRAM}.cbl"
 
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
-async def extract_jcl_dd_allocations(jcl_content: str, prog_name: str) -> list:
+def extract_jcl_dd_allocations(jcl_content: str, prog_name: str) -> list:
     system_prompt = f"""
     You are a mainframe JCL expert. Analyze the provided JCL.
     Find the EXEC step that runs PGM={prog_name.replace('.cbl', '')}.
@@ -45,7 +33,8 @@ async def extract_jcl_dd_allocations(jcl_content: str, prog_name: str) -> list:
     cleaned = response.content[0].text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.split("```")[1]
-        if cleaned.startswith("json"): cleaned = cleaned[4:]
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:]
     try:
         res = json.loads(cleaned.strip())
         return res if isinstance(res, list) else res.get("datasets", [])
@@ -53,7 +42,7 @@ async def extract_jcl_dd_allocations(jcl_content: str, prog_name: str) -> list:
         return []
 
 
-async def heal_cobol_fd_section(cobol_content: str, file_specs: list) -> str:
+def heal_cobol_fd_section(cobol_content: str, file_specs: list) -> str:
     system_prompt = """
     You are an autonomous COBOL DevOps agent.
     Task: Match FD names to DD names from the ground-truth specs provided.
@@ -92,23 +81,17 @@ async def heal_cobol_fd_section(cobol_content: str, file_specs: list) -> str:
     patch_text = response.content[0].text.strip()
 
     if not patch_text or "<<<<<<< SEARCH" not in patch_text:
-        # Nothing to fix — return the untouched original so no phantom diff appears
         return cobol_content
 
     return apply_search_replace_patches(cobol_content, patch_text)
 
-async def static_analysis_check(session) -> tuple[str, str]:
-    file_path = f"src/{program_name}"
-    cleaned_path = "/".join(part.strip() for part in file_path.split("/"))
-    mcp_result = await session.call_tool(
-        "get_file_contents",
-        arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": cleaned_path, "branch": "main"}
-    )
-    raw_content = json.loads(mcp_result.content[0].text).get("content", "")
-    cobol_code = base64.b64decode(raw_content.replace("\n", "")).decode(
-        "utf-8") if "DIVISION" not in raw_content.upper() else raw_content
 
-    with open(rules, "r") as f:
+def static_analysis_check(cobol_code: str) -> tuple[str, str]:
+    if not os.path.exists(rules_file):
+        print(f"[WARN] Rules file '{rules_file}' not found. Skipping static analysis rule check.")
+        return cobol_code, cobol_code
+
+    with open(rules_file, "r", encoding="utf-8") as f:
         z = f.read()
 
     static_analysis_prompt = """You are an expert IBM Mainframe COBOL static analysis specialist.
@@ -141,7 +124,7 @@ Rules to strictly follow:
             {
                 "type": "text",
                 "text": f"STATIC ANALYSIS RULES:\n{z}",
-                "cache_control": {"type": "ephemeral"}  # Caches rules across pipeline runs
+                "cache_control": {"type": "ephemeral"}
             }
         ],
         messages=[MessageParam(role="user", content=f"COBOL Source:\n{cobol_code}")]
@@ -149,12 +132,10 @@ Rules to strictly follow:
 
     patch_text = response.content[0].text.strip()
     modified_code = apply_search_replace_patches(cobol_code, patch_text)
-    #print('Modified Code is', modified_code)
     return cobol_code, modified_code
 
 
 def apply_search_replace_patches(original_code: str, patch_text: str) -> str:
-    # Detect original line-ending style so we can restore it at the end
     uses_crlf = '\r\n' in original_code
 
     working_code = original_code.replace('\xa0', ' ').replace('\r\n', '\n')
@@ -187,8 +168,6 @@ def apply_search_replace_patches(original_code: str, patch_text: str) -> str:
                 break
 
     if not any_patch_applied:
-        # Nothing actually matched — return the untouched original,
-        # not the normalized copy, so no phantom diff is created.
         return original_code
 
     if uses_crlf:
@@ -196,12 +175,8 @@ def apply_search_replace_patches(original_code: str, patch_text: str) -> str:
 
     return updated_code
 
-def diff_diagnostic(original: str, modified: str, max_report: int = 10) -> dict:
-    """
-    Compares original vs modified line-by-line and buckets differences so you
-    can see, before committing, whether changes are real content changes or
-    just whitespace/padding/line-ending noise.
-    """
+
+def diff_diagnostic(original: str, modified: str) -> dict:
     orig_lines = original.splitlines()
     mod_lines = modified.splitlines()
 
@@ -216,137 +191,77 @@ def diff_diagnostic(original: str, modified: str, max_report: int = 10) -> dict:
         if o == m:
             continue
         if o is None or m is None:
-            real_changes.append((i, o, m))  # line count actually changed
+            real_changes.append((i, o, m))
             continue
         if o.strip() == m.strip():
-            noise_changes.append((i, o, m))  # padding/whitespace/CRLF only
+            noise_changes.append((i, o, m))
         else:
             real_changes.append((i, o, m))
 
-    summary = {
+    return {
         "total_diff_lines": len(real_changes) + len(noise_changes),
         "real_changes": len(real_changes),
         "noise_changes": len(noise_changes),
     }
 
-    #print(f"[DIFF DIAGNOSTIC] {summary}")
 
-    if noise_changes:
-        #print(f"[DIFF DIAGNOSTIC] First {min(max_report, len(noise_changes))} "
-              f"whitespace/padding-only diffs (not real content changes):")
-        for i, o, m in noise_changes[:max_report]:
-            #print(f"  Line {i}: {o!r} -> {m!r}")
+def run_pipeline():
+    cobol_file_path = os.path.join("src", program_name)
 
-    if real_changes:
-        #print(f"[DIFF DIAGNOSTIC] First {min(max_report, len(real_changes))} "
-              f"real content changes:")
-        for i, o, m in real_changes[:max_report]:
-            #print(f"  Line {i}: {o!r} -> {m!r}")
+    if not os.path.exists(cobol_file_path):
+        print(f"[ERROR] Source file not found: {cobol_file_path}")
+        sys.exit(1)
 
-    return summary
+    with open(cobol_file_path, "r", encoding="utf-8", errors="ignore") as f:
+        original_code = f.read()
 
+    # 1. Run Static Analysis check
+    print(f"[INFO] Running static analysis check on local workspace file: {cobol_file_path}")
+    _, modified_code = static_analysis_check(original_code)
 
-async def run_mcp_pipeline_poc(session, original_code: str, modified_code: str):
+    # 2. Look for matching JCL locally
     clean_name = program_name.replace('.cbl', '').upper().strip()
     final_code = modified_code
     jcl_content, jcl_path = None, None
 
-    # 1. Attempt to find matching JCL safely
-    try:
-        dir_result = await session.call_tool(
-            "get_file_contents",
-            arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": "jcl"}
-        )
-        dir_data = json.loads(dir_result.content[0].text)
-
-        if isinstance(dir_data, list):
-            for file_entry in dir_data:
-                file_name = file_entry.get("name", "")
-                if not file_name.upper().endswith(".JCL"):
-                    continue
-
-                path = f"jcl/{file_name}"
-                file_result = await session.call_tool(
-                    "get_file_contents",
-                    arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": path}
-                )
-                raw = file_result.content[0].text
+    jcl_dir = "jcl"
+    if os.path.exists(jcl_dir) and os.path.isdir(jcl_dir):
+        for file_name in os.listdir(jcl_dir):
+            if file_name.upper().endswith(".JCL"):
+                path = os.path.join(jcl_dir, file_name)
                 try:
-                    parsed = json.loads(raw)
-                    content = base64.b64decode(parsed.get("content", "").replace("\n", "")).decode("utf-8")
-                except Exception:
-                    content = raw
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    if f"EXEC PGM={clean_name}" in content.upper():
+                        jcl_content, jcl_path = content, path
+                        break
+                except Exception as e:
+                    print(f"[WARN] Error reading JCL file '{path}': {e}")
 
-                if f"EXEC PGM={clean_name}" in content.upper():
-                    jcl_content, jcl_path = content, path
-                    break
-    except Exception as e:
-        print(f"[WARN] JCL directory search skipped ({e}). Proceeding without JCL healing.")
-
-    # 2. Perform FD healing if JCL is found
+    # 3. Perform FD healing if matching JCL is found
     if jcl_content:
-        print(f"[INFO] Found matching JCL at '{jcl_path}'. Performing FD section healing...")
-        jcl_datasets = await extract_jcl_dd_allocations(jcl_content, program_name)
+        print(f"[INFO] Found matching local JCL at '{jcl_path}'. Performing FD section healing...")
+        jcl_datasets = extract_jcl_dd_allocations(jcl_content, program_name)
         file_specs = [{"dd_name": ds.get("dd_name"), "actual_lrecl": ds.get("lrecl") or 80} for ds in jcl_datasets]
-        final_code = await heal_cobol_fd_section(modified_code, file_specs)
+        final_code = heal_cobol_fd_section(modified_code, file_specs)
     else:
-        print(f"[INFO] No matching JCL found for PGM={clean_name}. Proceeding with static analysis fixes.")
+        print(f"[INFO] No matching local JCL found for PGM={clean_name}. Proceeding with static analysis fixes.")
 
-    # 3. Diagnose the diff BEFORE deciding to commit
+    # 4. Evaluate diff & update local workspace file
     diag = diff_diagnostic(original_code, final_code)
 
     if diag["real_changes"] == 0:
-        print("[INFO] Only whitespace/padding-level differences detected — treating as no-op. No PR needed.")
-        return 0
+        print("[INFO] Static Analysis passed with no changes needed. Local file untouched.")
+        sys.exit(0)
 
-    # 4. Check code diff & set exit codes
-    if final_code.strip() != original_code.strip():
-        #print(f"[INFO] {diag['real_changes']} real change(s) detected! Creating branch and Pull Request...")
-        pr_url = await code_commit(session, final_code)
-        print(f"[ACTION REQUIRED] Pull Request opened: {pr_url}")
-        return 10  # Return Code 10 -> PR Created
-    else:
-        print("[INFO] Code adheres to rules. No changes required.")
-        return 0  # Return Code 0 -> Success / No PR Needed
+    # Apply fixes in-place
+    print(f"[INFO] {diag['real_changes']} real change(s) detected! Overwriting local file: {cobol_file_path}")
+    with open(cobol_file_path, "w", encoding="utf-8", newline="") as f:
+        f.write(final_code)
 
-async def github_connection():
-    env = os.environ.copy()
-    env["GITHUB_PERSONAL_ACCESS_TOKEN"] = GITHUB_TOKEN
-    server_params = StdioServerParameters(command="npx.cmd", args=["-y", "@modelcontextprotocol/server-github"],
-                                          env=env)
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            original_code, modified_code = await static_analysis_check(session)
-            return await run_mcp_pipeline_poc(session, original_code, modified_code)
-
-
-async def code_commit(session, modified_file) -> str:
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    new_branch = f"feature-static-analysis-{timestamp}"
-    await session.call_tool("create_branch", arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "branch": new_branch,
-                                                        "from_branch": "main"})
-    await session.call_tool(
-        "create_or_update_file",
-        arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": f"src/{program_name}", "content": modified_file,
-                   "message": "Applying static patches", "branch": new_branch}
-    )
-    pr_res = await session.call_tool(
-        "create_pull_request",
-        arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "title": f"Static Analysis Fixes ({timestamp})",
-                   "body": "Applying strict structural formatting rules", "head": new_branch, "base": "main"}
-    )
-
-    pr_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/pulls"
-    try:
-        parsed = json.loads(pr_res.content[0].text)
-        pr_url = parsed.get("html_url") or parsed.get("url") or pr_url
-    except Exception:
-        pass
-
-    return pr_url
+    print("[INFO] Static analysis corrections successfully applied to local repository file.")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    exit_code = asyncio.run(github_connection())
-    sys.exit(exit_code)
+    run_pipeline()
