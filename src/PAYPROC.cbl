@@ -43,6 +43,11 @@
 
       *--- INCLUDE SUMMARY TOTALS COPYBOOK ---
            COPY WSCOPY.
+*NEEDS-REVIEW: SOC7-001 - WS-TOTAL-EMPLOYEES, WS-TOTAL-GROSS-PAY,
+*              WS-TOTAL-TAX-DEDUCTED, WS-TOTAL-NET-PAY are defined in
+*              WSCOPY copybook; verify each has VALUE ZERO or is
+*              initialized before first use in ADD statements in
+*              2100-CALCULATE-PAYROLL and 2000-PROCESS-FILE.
 
       *--- REPORT FORMATTING STRUCTURES ---
        01  DETAIL-LINE.
@@ -108,12 +113,16 @@
            PERFORM 1100-READ-EMP-FILE.
 
        2100-CALCULATE-PAYROLL.
-           COMPUTE WS-GROSS-PAY ROUNDED =
-               EMP-HOURS-WORKED * WS-HOURLY-RATE
-               ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-GROSS-PAY COMPUTE'
-                   MOVE ZERO TO WS-GROSS-PAY
-           END-COMPUTE
+           IF EMP-HOURS-WORKED IS NUMERIC
+               COMPUTE WS-GROSS-PAY ROUNDED =
+                   EMP-HOURS-WORKED * WS-HOURLY-RATE
+                   ON SIZE ERROR
+                       DISPLAY 'SIZE ERROR ON WS-GROSS-PAY COMPUTE'
+                       MOVE ZERO TO WS-GROSS-PAY
+               END-COMPUTE
+           ELSE
+               MOVE ZERO TO WS-GROSS-PAY
+           END-IF
 
            COMPUTE WS-TAX-AMOUNT ROUNDED =
                WS-GROSS-PAY * WS-TAX-RATE
