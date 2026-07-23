@@ -55,20 +55,47 @@ async def extract_jcl_dd_allocations(jcl_content: str, prog_name: str) -> list:
 
 async def heal_cobol_fd_section(cobol_content: str, file_specs: list) -> str:
     system_prompt = """
-    You are an autonomous COBOL DevOps agent. 
-    Task: Match FD names to DD names. If FD lengths do not match 'actual_lrecl', 
-    intelligently modify the COBOL FD section (RECORD CONTAINS and 01 levels) to match 'actual_lrecl'.
-    Return the full, corrected COBOL code. Ensure exact COBOL column formatting (columns 8-72).
-    Respond ONLY with the raw COBOL code. No markdown, no explanations.
+    You are an autonomous COBOL DevOps agent.
+    Task: Match FD names to DD names from the ground-truth specs provided.
+    For any FD entry whose declared length does not match its 'actual_lrecl',
+    output SEARCH/REPLACE blocks that surgically correct ONLY:
+      - the RECORD CONTAINS clause (if present), and
+      - the specific PIC clauses in the corresponding 01-level record layout
+        that need to change to make the total length match 'actual_lrecl'.
+
+    Format every edit strictly as:
+    <<<<<<< SEARCH
+    [Exact original lines from source code to replace]
+    =======
+    [Corrected lines adhering strictly to 8-72 column alignment]
+    >>>>>>>
+
+    Rules:
+    1. Do NOT touch any line outside the FD/01-level entries that actually need
+       a length correction. Do not reformat, reindent, or rewrite unrelated code.
+    2. Apply the smallest possible change per violation.
+    3. Keep standard COBOL fixed format (columns 8-72).
+    4. If an FD's length already matches its actual_lrecl, do not emit any block for it.
+    5. If nothing needs correcting, output nothing at all — no blocks, no commentary.
+    6. Output ONLY the search/replace blocks. No explanations, no markdown wrappers.
     """
     user_content = f"Ground-Truth Specs:\n{json.dumps(file_specs)}\n\nCOBOL Code:\n{cobol_content}"
+
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=8096,
+        max_tokens=4096,
+        temperature=0.0,
         system=system_prompt,
         messages=[MessageParam(role="user", content=user_content)]
     )
-    return response.content[0].text.replace("```cobol", "").replace("```", "").strip()
+
+    patch_text = response.content[0].text.strip()
+
+    if not patch_text or "<<<<<<< SEARCH" not in patch_text:
+        # Nothing to fix — return the untouched original so no phantom diff appears
+        return cobol_content
+
+    return apply_search_replace_patches(cobol_content, patch_text)
 
 
 async def run_mcp_pipeline_poc(session, original_code: str, modified_code: str):
@@ -185,52 +212,47 @@ Rules to strictly follow:
 
 
 def apply_search_replace_patches(original_code: str, patch_text: str) -> str:
-    """
-    Applies <<<<<<< SEARCH ... ======= ... >>>>>>> blocks flexibly by handling
-    whitespace mismatches, line ending variations (\r\n vs \n), and non-breaking spaces (\xa0).
-    """
-    # 1. Clean non-breaking spaces and normalize line endings
-    original_code = original_code.replace('\xa0', ' ').replace('\r\n', '\n')
+    # Detect original line-ending style so we can restore it at the end
+    uses_crlf = '\r\n' in original_code
+
+    working_code = original_code.replace('\xa0', ' ').replace('\r\n', '\n')
     patch_text = patch_text.replace('\xa0', ' ').replace('\r\n', '\n')
 
     pattern = re.compile(r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>>", re.DOTALL)
     matches = pattern.findall(patch_text)
 
-    updated_code = original_code
+    updated_code = working_code
+    any_patch_applied = False
 
     for search_block, replace_block in matches:
-        # Step A: Try exact string replacement first
         if search_block in updated_code:
             updated_code = updated_code.replace(search_block, replace_block, 1)
-            print("[INFO] Patch applied via exact match.")
+            any_patch_applied = True
             continue
 
-        # Step B: Fall back to normalized line-by-line matching
         search_lines = [line.strip() for line in search_block.strip().splitlines() if line.strip()]
         if not search_lines:
             continue
 
         orig_lines = updated_code.splitlines()
-        matched = False
-
         for i in range(len(orig_lines) - len(search_lines) + 1):
-            # Extract candidate lines from source and strip them for comparison
             candidate_stripped = [orig_lines[i + j].strip() for j in range(len(search_lines))]
-
             if candidate_stripped == search_lines:
-                # Match found! Replace the matching line block with the replacement lines
                 replace_lines = replace_block.splitlines()
                 orig_lines[i: i + len(search_lines)] = replace_lines
                 updated_code = "\n".join(orig_lines)
-                matched = True
-                print(f"[INFO] Patch applied via normalized line match.")
+                any_patch_applied = True
                 break
 
-        if not matched:
-            print(f"[WARN] Could not match search block in source:\n{search_block[:80]}...")
+    if not any_patch_applied:
+        # Nothing actually matched — return the untouched original,
+        # not the normalized copy, so no phantom diff is created.
+        return original_code
 
-    return updated_code 
+    if uses_crlf:
+        updated_code = updated_code.replace('\n', '\r\n')
 
+    return updated_code
 
 async def github_connection():
     env = os.environ.copy()
