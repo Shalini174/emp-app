@@ -1,0 +1,7 @@
+E0001  JOHN DOE               $1,820.00   $1,547.00
+E0002  JANE SMITH             $1,729.00   $1,469.65
+E0003  ROBERT JOHNSON         $2,047.50   $1,740.37
+E0005  MICHAEL BROWN          $2,275.00   $1,933.75
+========================================
+TOTAL EMPLOYEES   :         4
+TOTAL NET PAYOUT  :       $6,690.77
