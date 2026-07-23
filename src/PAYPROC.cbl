@@ -35,9 +35,9 @@
 
       *--- WORK FIELDS FOR INTERMEDIATE CALCULATIONS (COMP-3) ---
        01  WS-CALCULATIONS.
-           05  WS-GROSS-PAY           PIC S9(05)V99 COMP-3 VALUE ZERO.
-           05  WS-TAX-AMOUNT          PIC S9(05)V99 COMP-3 VALUE ZERO.
-           05  WS-NET-PAY             PIC S9(05)V99 COMP-3 VALUE ZERO.
+           05  WS-GROSS-PAY           PIC S9(05)V99 COMP-3 .
+           05  WS-TAX-AMOUNT          PIC S9(05)V99 COMP-3 .
+           05  WS-NET-PAY             PIC S9(05)V99 COMP-3 .
            05  WS-HOURLY-RATE         PIC S9(03)V99 COMP-3 VALUE 45.50.
            05  WS-TAX-RATE            PIC S9(01)V99 COMP-3 VALUE 0.15.
 
@@ -78,15 +78,6 @@
 
        1000-INITIALIZE.
            OPEN INPUT EMP-FILE
-           IF WS-EMP-STATUS NOT = '00'
-               DISPLAY 'EMP-FILE OPEN FAILED - STATUS: ' WS-EMP-STATUS
-               STOP RUN
-           END-IF
-           OPEN OUTPUT RPT-FILE
-           IF WS-RPT-STATUS NOT = '00'
-               DISPLAY 'RPT-FILE OPEN FAILED - STATUS: ' WS-RPT-STATUS
-               STOP RUN
-           END-IF
            PERFORM 1100-READ-EMP-FILE.
 
        1100-READ-EMP-FILE.
@@ -110,37 +101,13 @@
        2100-CALCULATE-PAYROLL.
            COMPUTE WS-GROSS-PAY ROUNDED =
                EMP-HOURS-WORKED * WS-HOURLY-RATE
-               ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-GROSS-PAY COMPUTE'
-                   MOVE ZERO TO WS-GROSS-PAY
-           END-COMPUTE
-
            COMPUTE WS-TAX-AMOUNT ROUNDED =
                WS-GROSS-PAY * WS-TAX-RATE
-               ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-TAX-AMOUNT COMPUTE'
-                   MOVE ZERO TO WS-TAX-AMOUNT
-           END-COMPUTE
-
            SUBTRACT WS-TAX-AMOUNT FROM WS-GROSS-PAY
                GIVING WS-NET-PAY
-               ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-NET-PAY SUBTRACT'
-                   MOVE ZERO TO WS-NET-PAY
-           END-SUBTRACT
-
            ADD WS-GROSS-PAY    TO WS-TOTAL-GROSS-PAY
-               ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-TOTAL-GROSS-PAY ADD'
-           END-ADD
            ADD WS-TAX-AMOUNT   TO WS-TOTAL-TAX-DEDUCTED
-               ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-TOTAL-TAX-DEDUCTED ADD'
-           END-ADD
-           ADD WS-NET-PAY      TO WS-TOTAL-NET-PAY
-               ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-TOTAL-NET-PAY ADD'
-           END-ADD.
+           ADD WS-NET-PAY      TO WS-TOTAL-NET-PAY.
 
        2200-FORMAT-AND-WRITE-DETAIL.
            MOVE SPACES          TO DETAIL-LINE
@@ -175,10 +142,4 @@
 
        9000-TERMINATE.
            CLOSE EMP-FILE
-                 RPT-FILE
-           IF WS-EMP-STATUS NOT = '00'
-               DISPLAY 'EMP-FILE CLOSE FAILED - STATUS: ' WS-EMP-STATUS
-           END-IF
-           IF WS-RPT-STATUS NOT = '00'
-               DISPLAY 'RPT-FILE CLOSE FAILED - STATUS: ' WS-RPT-STATUS
-           END-IF.
+                 RPT-FILE.
