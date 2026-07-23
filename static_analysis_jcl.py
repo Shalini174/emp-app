@@ -1,5 +1,5 @@
 import os
-import sys  
+import sys
 import json
 import asyncio
 import base64
@@ -97,64 +97,6 @@ async def heal_cobol_fd_section(cobol_content: str, file_specs: list) -> str:
 
     return apply_search_replace_patches(cobol_content, patch_text)
 
-
-async def run_mcp_pipeline_poc(session, original_code: str, modified_code: str):
-    clean_name = program_name.replace('.cbl', '').upper().strip()
-    final_code = modified_code
-    jcl_content, jcl_path = None, None
-
-    # 1. Attempt to find matching JCL safely
-    try:
-        dir_result = await session.call_tool(
-            "get_file_contents",
-            arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": "jcl"}
-        )
-        dir_data = json.loads(dir_result.content[0].text)
-
-        if isinstance(dir_data, list):
-            for file_entry in dir_data:
-                file_name = file_entry.get("name", "")
-                if not file_name.upper().endswith(".JCL"):
-                    continue
-
-                path = f"jcl/{file_name}"
-                file_result = await session.call_tool(
-                    "get_file_contents",
-                    arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": path}
-                )
-                raw = file_result.content[0].text
-                try:
-                    parsed = json.loads(raw)
-                    content = base64.b64decode(parsed.get("content", "").replace("\n", "")).decode("utf-8")
-                except Exception:
-                    content = raw
-
-                if f"EXEC PGM={clean_name}" in content.upper():
-                    jcl_content, jcl_path = content, path
-                    break
-    except Exception as e:
-        print(f"[WARN] JCL directory search skipped ({e}). Proceeding without JCL healing.")
-
-    # 2. Perform FD healing if JCL is found
-    if jcl_content:
-        print(f"[INFO] Found matching JCL at '{jcl_path}'. Performing FD section healing...")
-        jcl_datasets = await extract_jcl_dd_allocations(jcl_content, program_name)
-        file_specs = [{"dd_name": ds.get("dd_name"), "actual_lrecl": ds.get("lrecl") or 80} for ds in jcl_datasets]
-        final_code = await heal_cobol_fd_section(modified_code, file_specs)
-    else:
-        print(f"[INFO] No matching JCL found for PGM={clean_name}. Proceeding with static analysis fixes.")
-
-    # 3. Check code diff & set exit codes
-    if final_code.strip() != original_code.strip():
-        print("[INFO] Code changes detected! Creating branch and Pull Request...")
-        pr_url = await code_commit(session, final_code)
-        print(f"[ACTION REQUIRED] Pull Request opened: {pr_url}")
-        return 10  # Return Code 10 -> PR Created
-    else:
-        print("[INFO] Code adheres to rules. No changes required.")
-        return 0  # Return Code 0 -> Success / No PR Needed
-
-
 async def static_analysis_check(session) -> tuple[str, str]:
     file_path = f"src/{program_name}"
     cleaned_path = "/".join(part.strip() for part in file_path.split("/"))
@@ -207,7 +149,7 @@ Rules to strictly follow:
 
     patch_text = response.content[0].text.strip()
     modified_code = apply_search_replace_patches(cobol_code, patch_text)
-    print('Modified Code is', modified_code)
+    #print('Modified Code is', modified_code)
     return cobol_code, modified_code
 
 
@@ -253,6 +195,119 @@ def apply_search_replace_patches(original_code: str, patch_text: str) -> str:
         updated_code = updated_code.replace('\n', '\r\n')
 
     return updated_code
+
+def diff_diagnostic(original: str, modified: str, max_report: int = 10) -> dict:
+    """
+    Compares original vs modified line-by-line and buckets differences so you
+    can see, before committing, whether changes are real content changes or
+    just whitespace/padding/line-ending noise.
+    """
+    orig_lines = original.splitlines()
+    mod_lines = modified.splitlines()
+
+    real_changes = []
+    noise_changes = []
+
+    max_len = max(len(orig_lines), len(mod_lines))
+    for i in range(max_len):
+        o = orig_lines[i] if i < len(orig_lines) else None
+        m = mod_lines[i] if i < len(mod_lines) else None
+
+        if o == m:
+            continue
+        if o is None or m is None:
+            real_changes.append((i, o, m))  # line count actually changed
+            continue
+        if o.strip() == m.strip():
+            noise_changes.append((i, o, m))  # padding/whitespace/CRLF only
+        else:
+            real_changes.append((i, o, m))
+
+    summary = {
+        "total_diff_lines": len(real_changes) + len(noise_changes),
+        "real_changes": len(real_changes),
+        "noise_changes": len(noise_changes),
+    }
+
+    #print(f"[DIFF DIAGNOSTIC] {summary}")
+
+    if noise_changes:
+        #print(f"[DIFF DIAGNOSTIC] First {min(max_report, len(noise_changes))} "
+              f"whitespace/padding-only diffs (not real content changes):")
+        for i, o, m in noise_changes[:max_report]:
+            #print(f"  Line {i}: {o!r} -> {m!r}")
+
+    if real_changes:
+        #print(f"[DIFF DIAGNOSTIC] First {min(max_report, len(real_changes))} "
+              f"real content changes:")
+        for i, o, m in real_changes[:max_report]:
+            #print(f"  Line {i}: {o!r} -> {m!r}")
+
+    return summary
+
+
+async def run_mcp_pipeline_poc(session, original_code: str, modified_code: str):
+    clean_name = program_name.replace('.cbl', '').upper().strip()
+    final_code = modified_code
+    jcl_content, jcl_path = None, None
+
+    # 1. Attempt to find matching JCL safely
+    try:
+        dir_result = await session.call_tool(
+            "get_file_contents",
+            arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": "jcl"}
+        )
+        dir_data = json.loads(dir_result.content[0].text)
+
+        if isinstance(dir_data, list):
+            for file_entry in dir_data:
+                file_name = file_entry.get("name", "")
+                if not file_name.upper().endswith(".JCL"):
+                    continue
+
+                path = f"jcl/{file_name}"
+                file_result = await session.call_tool(
+                    "get_file_contents",
+                    arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": path}
+                )
+                raw = file_result.content[0].text
+                try:
+                    parsed = json.loads(raw)
+                    content = base64.b64decode(parsed.get("content", "").replace("\n", "")).decode("utf-8")
+                except Exception:
+                    content = raw
+
+                if f"EXEC PGM={clean_name}" in content.upper():
+                    jcl_content, jcl_path = content, path
+                    break
+    except Exception as e:
+        print(f"[WARN] JCL directory search skipped ({e}). Proceeding without JCL healing.")
+
+    # 2. Perform FD healing if JCL is found
+    if jcl_content:
+        print(f"[INFO] Found matching JCL at '{jcl_path}'. Performing FD section healing...")
+        jcl_datasets = await extract_jcl_dd_allocations(jcl_content, program_name)
+        file_specs = [{"dd_name": ds.get("dd_name"), "actual_lrecl": ds.get("lrecl") or 80} for ds in jcl_datasets]
+        final_code = await heal_cobol_fd_section(modified_code, file_specs)
+    else:
+        print(f"[INFO] No matching JCL found for PGM={clean_name}. Proceeding with static analysis fixes.")
+
+    # 3. Diagnose the diff BEFORE deciding to commit
+    diag = diff_diagnostic(original_code, final_code)
+
+    if diag["real_changes"] == 0:
+        print("[INFO] Only whitespace/padding-level differences detected — treating as no-op. No PR needed.")
+        return 0
+
+    # 4. Check code diff & set exit codes
+    if final_code.strip() != original_code.strip():
+        #print(f"[INFO] {diag['real_changes']} real change(s) detected! Creating branch and Pull Request...")
+        pr_url = await code_commit(session, final_code)
+        print(f"[ACTION REQUIRED] Pull Request opened: {pr_url}")
+        return 10  # Return Code 10 -> PR Created
+    else:
+        print("[INFO] Code adheres to rules. No changes required.")
+        return 0  # Return Code 0 -> Success / No PR Needed
 
 async def github_connection():
     env = os.environ.copy()
