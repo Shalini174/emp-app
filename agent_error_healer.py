@@ -6,8 +6,6 @@ from collections import Counter
 from datetime import datetime
 
 from dotenv import load_dotenv
-from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
 from openai import OpenAI
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -15,53 +13,40 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionToolMessageParam,
     ChatCompletionUserMessageParam,
+    ChatCompletionToolParam,
 )
-from openai.types.chat import ChatCompletionToolParam
 
 load_dotenv()
 
 # --- Dynamic Configuration Retrieval ---
-ENV_PROGRAM = os.getenv("PROGRAM_NAME", "EMPPROC")
-ENV_REPO_URL = os.getenv("REPO_URL", "https://github.com/Shalini174/emp-app.git")
-
-# Parse GitHub Owner and Repository from the parameterized URL
-url_match = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", ENV_REPO_URL)
-REPO_OWNER = url_match.group(1) if url_match else "Shalini174"
-REPO_NAME = url_match.group(2) if url_match else "emp-app"
+ENV_PROGRAM = os.getenv("PROGRAM_NAME", "PAYPROC")
 
 log_file = f"{ENV_PROGRAM}_SPOOL.txt"
 program_filename = f"{ENV_PROGRAM}.cbl"
 
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GITHUB_HEADERS = {
-    "Authorization": f"Bearer {GITHUB_TOKEN}",
-    "Accept": "application/vnd.github.v3+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-}
-
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 system_prompt = f"""You are a Mainframe Systems Engineer and autonomous AI Agent specializing in automated COBOL compilation error resolution. 
 
-Your core objective is to completely resolve the compilation errors found in the provided CI pipeline spool log. You must dynamically invoke your tools to progress from error identification to opening a successful Pull Request.
+Your core objective is to completely resolve the compilation errors found in the provided CI pipeline spool log. You must dynamically invoke your tools to progress from error identification to saving the corrected files locally in the repository.
 
 ---
 
 ### OPERATIONAL WORKFLOW & TOOL LIFECYCLE
 You must follow this logical progression when executing your tools. Do not skip steps.
 
-1. Read the file from the Git Repository.
-2. Identify the issue .
-3. Fix the issue in the program.
-4. Commit the modified program in the repository and open a pull request to merge the code to the main branch.
+1. Read the file from the local workspace directory (`src/`).
+2. Identify the issue.
+3. Fix the issue in the program/copybook.
+4. Save the modified program and copybooks directly to the local repository.
 ---
 
 ### ⚠️ CRITICAL AGENT DIRECTIVES
 - **No Hallucinations:** Do not fabricate code or assume an error is fixed. You must rely purely on the real data returned by your tool executions.
 - **Sequential Dependency:** You cannot invoke `code_commit` until `code_correct` has successfully run and updated the global state.
-- **Observation Loop:** After every single tool execution, evaluate the text content returned by the environment. If a tool reports a failure or an API error, adjust your arguments and retry the operation.
-- **Final Output:** Once `Commit_Code` returns the Pull Request details, present the final PR confirmation URL to the user as your concluding action. Do not output conversational text until the PR is opened.
+- **Observation Loop:** After every single tool execution, evaluate the text content returned by the environment. If a tool reports a failure, adjust your arguments and retry the operation.
+- **Final Output:** Once `code_commit` returns confirmation of saved files, present the completion message to the user as your concluding action.
 """
 
 system_prompt1 = """You are a mainframe COBOL expert analyzing compilation spool logs.
@@ -92,28 +77,28 @@ If the error doesn't classify as Copybook error, classify it as "Program error".
 
 Output format (STRICT JSON ONLY, NO EXTRA TEXT):
 [
-  {{
+  {
     "type": "<Copybook error | Program error>",
     "reason": "<clear explanation of the compilation error, sufficient to fix it>",
     "variables name": "<name of missing variables>"
-  }}
+  }
 ]
 
 DO NOT output anything except valid JSON.
 """
 
 tools: list[ChatCompletionToolParam] = [
-    {"type": "function", "function": {"name": "code_checkout", "description": "Reads the program files from the Github repository using MCP"}},
+    {"type": "function", "function": {"name": "code_checkout", "description": "Reads the program file from the local repository directory"}},
     {"type": "function", "function": {"name": "find_issue", "description": "Finds the issue from the compilation listing"}},
     {"type": "function", "function": {"name": "code_correct", "description": "Fixes Code based on the identified issues."}},
-    {"type": "function", "function": {"name": "code_commit", "description": "Commits the changes made to the source code and opens a Pull Request."}},
+    {"type": "function", "function": {"name": "code_commit", "description": "Saves the modified files directly to the local Jenkins repository filesystem."}},
 ]
 
 def spool_log_read():
     if not os.path.exists(log_file):
         print(f"[WARN] Spool file {log_file} not found. Creating a blank placeholder.")
         return "No errors found. Compilation completed successfully."
-    with open(log_file, "r") as f:
+    with open(log_file, "r", encoding="utf-8") as f:
         return f.read()
 
 def clean_llm_response(text: str) -> str:
@@ -163,7 +148,7 @@ def fix_copybook_error(path, variable_names, reason, copybook_code):
     - Return only the full corrected Copybook/Copybooks
     - DO NOT return the main COBOL program
     - Add only the variable names provided in the prompt, do not add any extra variables
-    - Return ONLY the full corrected copybook.No explanations or conversational text.
+    - Return ONLY the full corrected copybook. No explanations or conversational text.
     - Maintain standard COBOL formatting (Margins A and B).
     - Use appropriate PIC clauses for the variables based on the context found in the spool log.
     """
@@ -182,7 +167,7 @@ def fix_program_error(error_list, local_vars_list, cobol_code):
     prompt = """
     You are a COBOL expert. Adhere strictly to the rules below while sending the response back.
     CRITICAL RULES:
-    - Return only the full corrected COBOL program.No explanations or conversational text.
+    - Return only the full corrected COBOL program. No explanations or conversational text.
     - Maintain standard COBOL formatting (Margins A and B).
     - ONLY fix the specific compilation errors provided in the error list.
     """
@@ -197,64 +182,60 @@ def fix_program_error(error_list, local_vars_list, cobol_code):
     )
     return response.choices[0].message.content.strip()
 
-async def code_checkout(session, filename):
-    file_path = f"src/{filename}"
+def code_checkout(filename):
+    file_path = os.path.join("src", filename)
     try:
-        mcp_result = await session.call_tool(
-            "get_file_contents",
-            arguments={"owner": REPO_OWNER, "repo": RENAME_VAL if 'RENAME_VAL' in locals() else REPO_NAME, "path": file_path, "branch": "main"}
-        )
-        github_response_dict = json.loads(mcp_result.content[0].text)
-        return github_response_dict.get("content", "")
+        if os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()
+        print(f"[WARN] Local file {file_path} not found.")
+        return ""
     except Exception as e:
-        print(f"Error checking out main file: {e}")
+        print(f"Error reading local main file {file_path}: {e}")
         return ""
 
-async def copybook_checkout(session, file_path: str):
+def copybook_checkout(file_path: str):
     try:
-        mcp_result = await session.call_tool(
-            "get_file_contents",
-            arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": file_path, "branch": "main"}
-        )
-        github_response_dict = json.loads(mcp_result.content[0].text)
-        return github_response_dict.get("content", "")
+        if os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()
+        print(f"[WARN] Local copybook file {file_path} not found.")
+        return ""
     except Exception as e:
-        print(f"Error checking out copybook: {e}")
+        print(f"Error reading copybook {file_path}: {e}")
         return ""
 
-async def build_copybook_index(session, copybook_dir: str = "cpy") -> dict:
+def build_copybook_index(copybook_dir: str = "cpy") -> dict:
     prefix_map, suffix_map = {}, {}
     try:
-        dir_result = await session.call_tool(
-            "get_file_contents",
-            arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": copybook_dir, "branch": "main"}
-        )
-        dir_items = json.loads(dir_result.content[0].text)
-        for item in dir_items:
-            if item.get("type") == "file" and item.get("name", "").endswith(".cpy"):
-                file_path = item.get("path")
-                file_result = await session.call_tool(
-                    "get_file_contents",
-                    arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": file_path, "branch": "main"}
-                )
-                file_data = json.loads(file_result.content[0].text)
-                content = file_data.get("content", "")
-                vars_found = re.findall(r"^(?:\d{6})?\s*\d{2}\s+([\w-]+)", content, re.MULTILINE)
-                prefixes, suffixes = [], []
-                for var in vars_found:
-                    if var.upper() != "FILLER" and "-" in var:
-                        parts = var.split("-")
-                        prefixes.append(parts[0].upper())
-                        if len(parts) > 1:
-                            suffixes.append("-".join(parts[1:]).upper())
-                if prefixes:
-                    most_common_prefix = Counter(prefixes).most_common(1)[0][0]
-                    prefix_map[most_common_prefix] = file_path
-                if suffixes:
-                    most_common_suffix = Counter(suffixes).most_common(1)[0][0]
-                    suffix_map[most_common_suffix] = file_path
+        if not os.path.exists(copybook_dir):
+            print(f"[WARN] Copybook directory '{copybook_dir}' does not exist.")
+            return {"prefixes": prefix_map, "suffixes": suffix_map}
+
+        for root, _, files in os.walk(copybook_dir):
+            for file in files:
+                if file.endswith(".cpy"):
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path).replace("\\", "/")
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+
+                    vars_found = re.findall(r"^(?:\d{6})?\s*\d{2}\s+([\w-]+)", content, re.MULTILINE)
+                    prefixes, suffixes = [], []
+                    for var in vars_found:
+                        if var.upper() != "FILLER" and "-" in var:
+                            parts = var.split("-")
+                            prefixes.append(parts[0].upper())
+                            if len(parts) > 1:
+                                suffixes.append("-".join(parts[1:]).upper())
+                    if prefixes:
+                        most_common_prefix = Counter(prefixes).most_common(1)[0][0]
+                        prefix_map[most_common_prefix] = rel_path
+                    if suffixes:
+                        most_common_suffix = Counter(suffixes).most_common(1)[0][0]
+                        suffix_map[most_common_suffix] = rel_path
     except Exception as e:
-        print(f"Error index copybooks: {e}")
+        print(f"Error indexing copybooks: {e}")
     return {"prefixes": prefix_map, "suffixes": suffix_map}
 
 def find_home_for_variable(missing_var, copybook_maps):
@@ -273,9 +254,9 @@ def find_home_for_variable(missing_var, copybook_maps):
         if key in missing_var: return path
     return None
 
-async def code_correct(copy_dict, prog_dict, session, cobol_code, filename):
+def code_correct(copy_dict, prog_dict, cobol_code, filename):
     copybook_mapping, program_vars_to_add, fixed_files = {}, [], {}
-    copybook_map = await build_copybook_index(session=session)
+    copybook_map = build_copybook_index("cpy")
 
     if copy_dict.get("type_value") == "Copybook error" and copy_dict.get("variables_name"):
         for var in copy_dict["variables_name"]:
@@ -285,7 +266,7 @@ async def code_correct(copy_dict, prog_dict, session, cobol_code, filename):
             else:
                 program_vars_to_add.append(var)
         for name, sub_list in copybook_mapping.items():
-            code = await copybook_checkout(session, name)
+            code = copybook_checkout(name)
             fixed_files[name] = clean_llm_response(fix_copybook_error(name, sub_list, copy_dict, code))
 
     if (prog_dict.get("type_value") == "Program error" and prog_dict.get("error_list")) or program_vars_to_add:
@@ -293,30 +274,23 @@ async def code_correct(copy_dict, prog_dict, session, cobol_code, filename):
         fixed_files[f"src/{filename}"] = clean_llm_response(raw_cobol)
     return fixed_files
 
-async def code_commit(session, modified_files_dict):
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    new_branch = f"feature-update-cobol-{timestamp}"
-    await session.call_tool("create_branch", arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "branch": new_branch, "from_branch": "main"})
+def code_commit(modified_files_dict):
+    saved_files = []
+    for relative_path, content in modified_files_dict.items():
+        full_path = os.path.normpath(relative_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        saved_files.append(full_path)
+        print(f"[INFO] Successfully updated local repository file: {full_path}")
+    return f"Files updated successfully on local repository: {', '.join(saved_files)}"
 
-    for path, content in modified_files_dict.items():
-        await session.call_tool(
-            "create_or_update_file", 
-            arguments={"owner": REPO_OWNER, "repo": REPO_NAME, "path": path, "content": content, "message": f"Fixing {path}", "branch": new_branch}
-        )
-    pr_result = await session.call_tool(
-        "create_pull_request",
-        arguments={
-            "owner": REPO_OWNER, "repo": REPO_NAME,
-            "title": f"Automated Update for Mainframe Components ({timestamp})",
-            "body": f"This PR updates components: {', '.join(modified_files_dict.keys())}",
-            "head": new_branch, "base": "main"
-        }
-    )
-    return pr_result.content[0].text
-
-async def agent(log_content, session):
+async def agent(log_content):
     copybook_errors, program_errors, cobol_code, fixed_files = {}, {}, "", {}
-    messages = [ChatCompletionSystemMessageParam(role="system", content=system_prompt), ChatCompletionUserMessageParam(role="user", content=log_content)]
+    messages = [
+        ChatCompletionSystemMessageParam(role="system", content=system_prompt),
+        ChatCompletionUserMessageParam(role="user", content=log_content)
+    ]
 
     while True:
         response = client.chat.completions.create(model="gpt-4o-mini", messages=messages, tools=tools)
@@ -333,30 +307,24 @@ async def agent(log_content, session):
             name = call.function.name
             result = ""
             if name == "code_checkout":
-                cobol_code = await code_checkout(session, program_filename)
-                result = "Repository Cloned Successfully"
+                cobol_code = code_checkout(program_filename)
+                result = "Local program checked out successfully"
             elif name == "find_issue":
                 copybook_errors, program_errors = find_issue_logic(log_content)
                 result = "Issue detected successfully"
             elif name == "code_correct":
-                fixed_files = await code_correct(copybook_errors, program_errors, session, cobol_code, program_filename)
-                result = "Code corrected"
+                fixed_files = code_correct(copybook_errors, program_errors, cobol_code, program_filename)
+                result = "Code corrected locally"
             elif name == "code_commit":
-                res = await code_commit(session, fixed_files)
-                result = f"Code commit done. PR Details: {res}"
+                res = code_commit(fixed_files)
+                result = f"Local commit done: {res}"
             messages.append({"tool_call_id": call.id, "role": "tool", "content": str(result)})
 
 async def main_pipeline(log_content):
     if "No errors found" in log_content:
         print("Compilation succeeded perfectly. Skipping self-healing agent step.")
         return
-    env = os.environ.copy()
-    env["GITHUB_PERSONAL_ACCESS_TOKEN"] = GITHUB_TOKEN
-    server_params = StdioServerParameters(command="npx.cmd", args=["-y", "@modelcontextprotocol/server-github"], env=env)
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            await agent(log_content, session)
+    await agent(log_content)
 
 if __name__ == "__main__":
     log = spool_log_read()
