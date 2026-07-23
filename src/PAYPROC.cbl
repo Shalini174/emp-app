@@ -108,12 +108,16 @@
            PERFORM 1100-READ-EMP-FILE.
 
        2100-CALCULATE-PAYROLL.
-           COMPUTE WS-GROSS-PAY ROUNDED =
-               EMP-HOURS-WORKED * WS-HOURLY-RATE
-               ON SIZE ERROR
-                   DISPLAY 'SIZE ERROR ON WS-GROSS-PAY COMPUTE'
-                   MOVE ZERO TO WS-GROSS-PAY
-           END-COMPUTE
+           IF EMP-HOURS-WORKED IS NUMERIC
+               COMPUTE WS-GROSS-PAY ROUNDED =
+                   EMP-HOURS-WORKED * WS-HOURLY-RATE
+                   ON SIZE ERROR
+                       DISPLAY 'SIZE ERROR ON WS-GROSS-PAY COMPUTE'
+                       MOVE ZERO TO WS-GROSS-PAY
+               END-COMPUTE
+           ELSE
+               MOVE ZERO TO WS-GROSS-PAY
+           END-IF
 
            COMPUTE WS-TAX-AMOUNT ROUNDED =
                WS-GROSS-PAY * WS-TAX-RATE
