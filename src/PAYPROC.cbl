@@ -78,6 +78,7 @@
 
        1000-INITIALIZE.
            OPEN INPUT EMP-FILE
+           OPEN OUTPUT RPT-FILE
            PERFORM 1100-READ-EMP-FILE.
 
        1100-READ-EMP-FILE.
