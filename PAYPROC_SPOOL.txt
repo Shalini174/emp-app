@@ -1,0 +1,4 @@
+cpy\WSCOPY.CPY:9: warning: line not terminated by a newline [-Wmissing-newline]
+    7 |            05  WS-TOTAL-GROSS-PAY      PIC S9(07)V99 COMP-3 VALUE +0.
+    8 |            05  WS-TOTAL-TAX-DEDUCTED   PIC S9(07)V99 COMP-3 VALUE +0.
+    9 >            05  WS-TOTAL-NET-PAY        PIC S9(07)V99 COMP-3 VALUE +0.<EOF>
