@@ -4,6 +4,7 @@ import os
 import re
 from collections import Counter
 from datetime import datetime
+from fix_cobol_columns import process_file
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -283,6 +284,10 @@ def code_commit(modified_files_dict):
             f.write(content)
         saved_files.append(full_path)
         print(f"[INFO] Successfully updated local repository file: {full_path}")
+        if full_path.endswith(".cpy"):
+            changes = process_file(Path(full_path), Path(full_path), report=True)
+            if changes:
+                print(f"[INFO] fix_cobol_columns realigned {len(changes)} line(s) in {full_path}")
     return f"Files updated successfully on local repository: {', '.join(saved_files)}"
 
 async def agent(log_content):
