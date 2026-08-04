@@ -5,6 +5,7 @@ import re
 from collections import Counter
 from datetime import datetime
 from fix_cobol_columns import process_file
+from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
