@@ -3,7 +3,6 @@
       * DESCRIPTION: EMPLOYEE INPUT RECORD LAYOUT                      *
       *----------------------------------------------------------------*
        01  EMP-RECORD.
-           05  EMP-ID                  PIC X(05).
            05  EMP-NAME                PIC X(20).
            05  EMP-HOURS-WORKED        PIC 9(03).
            05  EMP-STATUS              PIC X(01).
