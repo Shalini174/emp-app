@@ -1,3 +1,7 @@
+cpy\EMPCOPY.CPY:12: warning: line not terminated by a newline [-Wmissing-newline]
+   10 |                88  STATUS-ACTIVE      VALUE 'A'.
+   11 |                88  STATUS-INACTIVE    VALUE 'I'.
+   12 >            05  FILLER                 PIC X(10).<EOF>
 cpy\WSCOPY.CPY:9: warning: line not terminated by a newline [-Wmissing-newline]
     7 |            05  WS-TOTAL-GROSS-PAY      PIC S9(07)V99 COMP-3 VALUE +0.
     8 |            05  WS-TOTAL-TAX-DEDUCTED   PIC S9(07)V99 COMP-3 VALUE +0.
